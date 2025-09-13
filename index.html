@@ -381,6 +381,41 @@
       transform: translateX(5px);
     }
 
+    /* 拖拽相关样式 */
+    .song-item.dragging {
+      opacity: 0.5;
+      transform: rotate(5deg);
+      z-index: 1000;
+    }
+
+    .song-item.drag-over {
+      border-top: 2px solid #a18aff;
+      background: rgba(161, 138, 255, 0.1);
+    }
+
+    .song-item.drag-handle {
+      cursor: grab;
+    }
+
+    .song-item.drag-handle:active {
+      cursor: grabbing;
+    }
+
+    .drag-indicator {
+      width: 4px;
+      height: 20px;
+      background: linear-gradient(135deg, #ff9aeb, #a18aff);
+      border-radius: 2px;
+      margin-right: 10px;
+      cursor: grab;
+      transition: all 0.3s ease;
+    }
+
+    .drag-indicator:hover {
+      background: linear-gradient(135deg, #a18aff, #6ecbff);
+      transform: scale(1.2);
+    }
+
     .song-index {
       width: 30px;
       height: 30px;
@@ -525,6 +560,35 @@
     .control-btn:hover {
       background: rgba(161, 138, 255, 0.3);
       transform: scale(1.05);
+    }
+
+    /* 播放模式控制样式 */
+    .play-mode-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .mode-btn {
+      width: 40px;
+      height: 40px;
+      font-size: 16px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .mode-btn:hover {
+      background: rgba(161, 138, 255, 0.3);
+      border-color: #a18aff;
+      transform: scale(1.05);
+    }
+
+    .mode-text {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.8);
+      font-weight: 500;
     }
 
     .progress-container {
@@ -870,6 +934,13 @@
               <i class="fas fa-step-forward"></i>
             </button>
           </div>
+          <!-- 播放模式控制 -->
+          <div class="play-mode-controls">
+            <button class="control-btn mode-btn" @click="togglePlayMode" :title="playModeText">
+              <i :class="playModeIcon"></i>
+            </button>
+            <span class="mode-text">{{ playModeText }}</span>
+          </div>
           <div class="progress-container">
             <div class="progress-bar" @click="seekTo($event)" title="[左箭头 | 右箭头]">
               <div class="progress-fill" :style="{ width: progress + '%' }"></div>
@@ -985,11 +1056,23 @@
             <div class="lyric-empty" v-if="!playList.length">请先添加歌曲</div>
             <div 
               v-for="(song, index) in playList" 
-              :key="index" 
-              class="song-item"
-              :class="{ active: currentInd === index }"
+              :key="`${song.source}_${song.id}_${index}`" 
+              class="song-item drag-handle"
+              :class="{ 
+                active: currentInd === index,
+                dragging: dragState.draggingIndex === index,
+                'drag-over': dragState.dragOverIndex === index
+              }"
+              :draggable="true"
               @click="playSong(index)"
+              @dragstart="onDragStart($event, index)"
+              @dragend="onDragEnd"
+              @dragover="onDragOver($event, index)"
+              @dragleave="onDragLeave"
+              @drop="onDrop($event, index)"
             >
+              <div class="drag-indicator" @mousedown="startDrag($event, index)"></div>
+              <div class="song-index">{{ (index + 1).toString().padStart(2, '0') }}</div>
               <div class="song-info">
                 <div class="song-name">{{ song.name }}</div>
                 <div class="song-artist">
@@ -1081,7 +1164,15 @@
           lyricsEnd: null,
           lyricLock: true,
           lyricFull: false,
-          albumSbgImg
+          albumSbgImg,
+          // 播放模式相关
+          playMode: 'list', // 'list', 'single', 'random', 'sequence'
+          // 拖拽状态
+          dragState: {
+            draggingIndex: -1,
+            dragOverIndex: -1,
+            isDragging: false
+          }
         };
       },
       computed: {
@@ -1096,11 +1187,30 @@
         currentInd() {
           return this.playList.length ? this.playList.findIndex(x => `${x.source}_${x.id}` === this.currentSong.key) : -1;
         },
+        playModeIcon() {
+          const icons = {
+            'sequence': 'fas fa-list',
+            'list': 'fas fa-repeat',
+            'single': 'fas fa-redo',
+            'random': 'fas fa-random'
+          };
+          return icons[this.playMode] || 'fas fa-list';
+        },
+        playModeText() {
+          const texts = {
+            'sequence': '顺序播放',
+            'list': '列表循环',
+            'single': '单曲循环',
+            'random': '随机播放'
+          };
+          return texts[this.playMode] || '顺序播放';
+        },
       },
       async created() {
         this.searchHistory = await getStorage('searchHistory') || {}
         this.lyricHistory = await getStorage('lyricHistory') || {};
         this.playList = await getStorage('playList') || [];
+        this.playMode = await getStorage('playMode') || 'list';
       },
       methods: {
         goTo(selector) { document.querySelector(selector).scrollIntoView({ behavior: 'smooth', block: 'end' }) },
@@ -1221,12 +1331,54 @@
           }
         },
         nextSong() {
-          if (this.currentInd < this.playList.length - 1) {
-            this.playSong(this.currentInd + 1);
-          } else {
-            this.playSong(0);
-            // this.showNotification('已经是最后一首歌曲', 'info');
+          if (this.playList.length === 0) return;
+          
+          let nextIndex = -1;
+          
+          switch (this.playMode) {
+            case 'sequence':
+              // 顺序播放，播放完就停止
+              if (this.currentInd < this.playList.length - 1) {
+                nextIndex = this.currentInd + 1;
+              } else {
+                this.showNotification('播放列表已播放完毕', 'info');
+                return;
+              }
+              break;
+            case 'list':
+              // 列表循环
+              nextIndex = (this.currentInd + 1) % this.playList.length;
+              break;
+            case 'single':
+              // 单曲循环，重新播放当前歌曲
+              nextIndex = this.currentInd;
+              break;
+            case 'random':
+              // 随机播放
+              if (this.playList.length === 1) {
+                nextIndex = 0;
+              } else {
+                let randomIndex;
+                do {
+                  randomIndex = Math.floor(Math.random() * this.playList.length);
+                } while (randomIndex === this.currentInd);
+                nextIndex = randomIndex;
+              }
+              break;
+            default:
+              nextIndex = (this.currentInd + 1) % this.playList.length;
           }
+          
+          if (nextIndex >= 0 && nextIndex < this.playList.length) {
+            this.playSong(nextIndex);
+          }
+        },
+        togglePlayMode() {
+          const modes = ['sequence', 'list', 'single', 'random'];
+          const currentIndex = modes.indexOf(this.playMode);
+          this.playMode = modes[(currentIndex + 1) % modes.length];
+          setStorage('playMode', this.playMode);
+          this.showNotification(`切换到${this.playModeText}`, 'info');
         },
         seekTo(event) {
           if (this.$refs.audioPlayer.duration) {
@@ -1444,6 +1596,68 @@
             this.$refs.audioPlayer.currentTime += 5
             // this.nextSong();
           }
+        },
+        // 拖拽相关方法
+        startDrag(event, index) {
+          event.preventDefault();
+          this.dragState.draggingIndex = index;
+          this.dragState.isDragging = true;
+        },
+        onDragStart(event, index) {
+          this.dragState.draggingIndex = index;
+          this.dragState.isDragging = true;
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/html', event.target.outerHTML);
+        },
+        onDragEnd() {
+          this.dragState.draggingIndex = -1;
+          this.dragState.dragOverIndex = -1;
+          this.dragState.isDragging = false;
+        },
+        onDragOver(event, index) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          this.dragState.dragOverIndex = index;
+        },
+        onDragLeave() {
+          this.dragState.dragOverIndex = -1;
+        },
+        onDrop(event, targetIndex) {
+          event.preventDefault();
+          const sourceIndex = this.dragState.draggingIndex;
+          
+          if (sourceIndex === -1 || sourceIndex === targetIndex) {
+            this.dragState.draggingIndex = -1;
+            this.dragState.dragOverIndex = -1;
+            return;
+          }
+          
+          // 移动歌曲位置
+          const song = this.playList[sourceIndex];
+          this.playList.splice(sourceIndex, 1);
+          this.playList.splice(targetIndex, 0, song);
+          
+          // 更新当前播放索引
+          if (this.currentInd === sourceIndex) {
+            // 如果移动的是当前播放的歌曲
+            this.currentSong.key = `${song.source}_${song.id}`;
+          } else if (this.currentInd > sourceIndex && this.currentInd <= targetIndex) {
+            // 如果当前播放的歌曲在移动范围内
+            this.currentSong.key = `${this.playList[this.currentInd - 1].source}_${this.playList[this.currentInd - 1].id}`;
+          } else if (this.currentInd < sourceIndex && this.currentInd >= targetIndex) {
+            // 如果当前播放的歌曲在移动范围内
+            this.currentSong.key = `${this.playList[this.currentInd + 1].source}_${this.playList[this.currentInd + 1].id}`;
+          }
+          
+          // 保存到本地存储
+          setStorage('playList', this.playList);
+          
+          // 重置拖拽状态
+          this.dragState.draggingIndex = -1;
+          this.dragState.dragOverIndex = -1;
+          this.dragState.isDragging = false;
+          
+          this.showNotification('播放列表顺序已更新', 'success');
         }
       },
       mounted() {
