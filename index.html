@@ -12,8 +12,13 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; 
       background: #0c0c0c; 
       color: #fff; 
-      overflow-x: hidden;
+      overflow-x: hidden; /* 只禁用横向滚动 */
       min-height: 100vh;
+      height: auto; /* 允许高度自适应内容 */
+    }
+    /* 移动端视口高度修复 */
+    @supports (height: 100dvh) {
+      body { height: auto; min-height: 100dvh; }
     }
     
     html {
@@ -203,6 +208,14 @@
       height: calc(100vh - 200px);
       min-height: 500px;
     }
+    
+    /* 移动端允许滚动查看内容 */
+    @media (max-width: 768px) {
+      body {
+        overflow: auto; /* 移动端允许页面滚动 */
+        height: auto;
+      }
+    }
 
     .wrap-box {
       background: rgba(255, 255, 255, 0.05);
@@ -356,12 +369,15 @@
       height: 100%;
       display: flex;
       flex-direction: column;
+      min-height: 0; /* 确保flex子元素可以收缩 */
     }
 
     .search-results {
       flex: 1;
       overflow-y: auto;
       padding-right: 10px;
+      -webkit-overflow-scrolling: touch;
+      min-height: 0; /* 确保可以收缩并显示滚动条 */
     }
 
     .song-item {
@@ -488,6 +504,7 @@
       gap: 15px;
       height: 100%;
       overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
     .current-song {
@@ -704,12 +721,15 @@
       height: 100%;
       display: flex;
       flex-direction: column;
+      min-height: 0; /* 确保flex子元素可以收缩 */
     }
 
     .list-container {
       flex: 1;
       overflow-y: auto;
       padding-right: 10px;
+      -webkit-overflow-scrolling: touch;
+      min-height: 0; /* 确保可以收缩并显示滚动条 */
     }
 
     .list-container .song-item {
@@ -739,6 +759,7 @@
       height: 100%;
       display: flex;
       flex-direction: column;
+      min-height: 0; /* 确保flex子元素可以收缩 */
     }
 
     .lyrics-section.full {
@@ -757,6 +778,7 @@
       flex: 1;
       overflow-y: auto;
       padding-right: 10px;
+      -webkit-overflow-scrolling: touch;
     }
 
     .lyrics-section.full .lyrics-container {
@@ -828,8 +850,13 @@
       .main-layout {
         grid-template-columns: 1fr 1fr;
         grid-template-rows: 1fr 1fr;
-        height: auto;
-        min-height: 800px;
+        height: auto; /* 允许高度自适应 */
+        min-height: 500px;
+      }
+    }
+    @supports (height: 100dvh) {
+      @media (max-width: 1200px) {
+        .main-layout { height: auto; }
       }
     }
 
@@ -861,10 +888,29 @@
       }
 
       .main-layout {
-        grid-template-columns: 1fr;
-        grid-template-rows: auto auto auto auto;
-        height: auto;
+        display: flex; /* 改为垂直弹性布局 */
+        flex-direction: column;
+        gap: 20px;
+        height: auto; /* 允许高度自适应 */
         min-height: auto;
+      }
+
+      /* 移动端各区域样式 */
+      .player-section, 
+      .search-section, 
+      .lyrics-section, 
+      .list-section {
+        flex: none; /* 不拉伸 */
+        height: auto; /* 高度自适应内容 */
+        min-height: 300px; /* 最小高度保证可用性 */
+      }
+
+      /* 搜索结果和播放列表增加最大高度和滚动 */
+      .search-results,
+      .list-container,
+      .lyrics-container {
+        max-height: 400px;
+        overflow-y: auto;
       }
 
       .current-song {
@@ -881,6 +927,11 @@
         flex-direction: column;
       }
 
+    }
+    @supports (height: 100dvh) {
+      @media (max-width: 768px) {
+        .main-layout { height: auto; }
+      }
     }
 </style>
 </head>
